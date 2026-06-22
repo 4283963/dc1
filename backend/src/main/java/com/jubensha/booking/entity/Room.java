@@ -21,6 +21,10 @@ public class Room {
 
     private String description;
 
+    @Version
+    @Column(name = "version")
+    private Integer version;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

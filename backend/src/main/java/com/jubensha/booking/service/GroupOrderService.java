@@ -46,17 +46,28 @@ public class GroupOrderService {
         int female = request.getInitialFemale() != null ? request.getInitialFemale() : 0;
         order.setCurrentMale(male);
         order.setCurrentFemale(female);
-        order.setTotalPlayers(male + female);
         order.setStatus(OrderStatus.PENDING);
         order.setRemark(request.getRemark());
 
         GroupOrder saved = groupOrderRepository.save(order);
-        return convertToVO(saved, script, null);
+
+        Script freshScript = scriptRepository.findById(saved.getScriptId()).orElse(null);
+        if (isOrderFull(saved, freshScript)) {
+            Room room = allocateRoomWithLock(saved, freshScript);
+            if (room != null) {
+                saved.setRoomId(room.getId());
+                saved.setStatus(OrderStatus.CONFIRMED);
+                saved = groupOrderRepository.save(saved);
+            }
+        }
+
+        Room room = saved.getRoomId() != null ? roomRepository.findById(saved.getRoomId()).orElse(null) : null;
+        return convertToVO(saved, freshScript, room);
     }
 
     @Transactional
     public GroupOrderVO addPlayer(AddPlayerRequest request) {
-        GroupOrder order = groupOrderRepository.findById(request.getOrderId())
+        GroupOrder order = groupOrderRepository.findByIdForUpdate(request.getOrderId())
                 .orElseThrow(() -> new RuntimeException("拼单不存在"));
 
         if (order.getStatus() != OrderStatus.PENDING) {
@@ -68,12 +79,11 @@ public class GroupOrderService {
 
         order.setCurrentMale(order.getCurrentMale() + addMale);
         order.setCurrentFemale(order.getCurrentFemale() + addFemale);
-        order.setTotalPlayers(order.getCurrentMale() + order.getCurrentFemale());
 
         Script script = scriptRepository.findById(order.getScriptId()).orElse(null);
 
         if (isOrderFull(order, script)) {
-            Room room = findAvailableRoom(order, script);
+            Room room = allocateRoomWithLock(order, script);
             if (room != null) {
                 order.setRoomId(room.getId());
                 order.setStatus(OrderStatus.CONFIRMED);
@@ -82,12 +92,43 @@ public class GroupOrderService {
 
         GroupOrder saved = groupOrderRepository.save(order);
 
-        Room room = null;
-        if (order.getRoomId() != null) {
-            room = roomRepository.findById(order.getRoomId()).orElse(null);
+        Room room = saved.getRoomId() != null ? roomRepository.findById(saved.getRoomId()).orElse(null) : null;
+        return convertToVO(saved, script, room);
+    }
+
+    private Room allocateRoomWithLock(GroupOrder order, Script script) {
+        if (script == null) {
+            return null;
         }
 
-        return convertToVO(saved, script, room);
+        int requiredCapacity = script.getTotalPlayers();
+
+        List<Room> suitableRooms = roomRepository.findAll().stream()
+                .filter(room -> room.getCapacity() >= requiredCapacity)
+                .sorted(Comparator.comparingInt(Room::getCapacity))
+                .toList();
+
+        if (suitableRooms.isEmpty()) {
+            return null;
+        }
+
+        for (Room candidate : suitableRooms) {
+            Room lockedRoom = roomRepository.findByIdForUpdate(candidate.getId()).orElse(null);
+            if (lockedRoom == null) {
+                continue;
+            }
+
+            List<GroupOrder> conflicts = groupOrderRepository.findConflictingOrdersLocked(
+                    lockedRoom.getId(),
+                    order.getStartTime(),
+                    order.getEndTime());
+
+            if (conflicts.isEmpty()) {
+                return lockedRoom;
+            }
+        }
+
+        return null;
     }
 
     private boolean isOrderFull(GroupOrder order, Script script) {
@@ -111,30 +152,6 @@ public class GroupOrderService {
         }
 
         return true;
-    }
-
-    private Room findAvailableRoom(GroupOrder order, Script script) {
-        List<Room> allRooms = roomRepository.findAll();
-        if (allRooms.isEmpty()) {
-            return null;
-        }
-
-        int requiredCapacity = script.getTotalPlayers();
-
-        List<Room> suitableRooms = allRooms.stream()
-                .filter(room -> room.getCapacity() >= requiredCapacity)
-                .sorted(Comparator.comparingInt(Room::getCapacity))
-                .collect(Collectors.toList());
-
-        for (Room room : suitableRooms) {
-            List<GroupOrder> conflicting = groupOrderRepository.findConflictingOrders(
-                    room.getId(), order.getStartTime(), order.getEndTime());
-            if (conflicting.isEmpty()) {
-                return room;
-            }
-        }
-
-        return null;
     }
 
     public List<GroupOrderVO> getActiveOrders() {
@@ -275,7 +292,7 @@ public class GroupOrderService {
 
     @Transactional
     public GroupOrderVO cancelOrder(Long id) {
-        GroupOrder order = groupOrderRepository.findById(id)
+        GroupOrder order = groupOrderRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new RuntimeException("拼单不存在"));
         order.setStatus(OrderStatus.CANCELLED);
         GroupOrder saved = groupOrderRepository.save(order);
@@ -286,7 +303,7 @@ public class GroupOrderService {
 
     @Transactional
     public GroupOrderVO startOrder(Long id) {
-        GroupOrder order = groupOrderRepository.findById(id)
+        GroupOrder order = groupOrderRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new RuntimeException("拼单不存在"));
         if (order.getStatus() != OrderStatus.CONFIRMED) {
             throw new RuntimeException("只有已成团的订单才能开始");
@@ -300,7 +317,7 @@ public class GroupOrderService {
 
     @Transactional
     public GroupOrderVO finishOrder(Long id) {
-        GroupOrder order = groupOrderRepository.findById(id)
+        GroupOrder order = groupOrderRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new RuntimeException("拼单不存在"));
         if (order.getStatus() != OrderStatus.IN_PROGRESS) {
             throw new RuntimeException("只有进行中的订单才能结束");

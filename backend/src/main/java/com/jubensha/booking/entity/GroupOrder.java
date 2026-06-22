@@ -40,6 +40,10 @@ public class GroupOrder {
 
     private String remark;
 
+    @Version
+    @Column(name = "version")
+    private Integer version;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
