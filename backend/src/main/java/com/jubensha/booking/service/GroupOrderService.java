@@ -4,6 +4,7 @@ import com.jubensha.booking.dto.AddPlayerRequest;
 import com.jubensha.booking.dto.CreateGroupOrderRequest;
 import com.jubensha.booking.dto.GroupOrderVO;
 import com.jubensha.booking.dto.RoomStatusVO;
+import com.jubensha.booking.dto.UpdatePlayerCountRequest;
 import com.jubensha.booking.entity.GroupOrder;
 import com.jubensha.booking.entity.OrderStatus;
 import com.jubensha.booking.entity.Room;
@@ -83,6 +84,50 @@ public class GroupOrderService {
         Script script = scriptRepository.findById(order.getScriptId()).orElse(null);
 
         if (isOrderFull(order, script)) {
+            Room room = allocateRoomWithLock(order, script);
+            if (room != null) {
+                order.setRoomId(room.getId());
+                order.setStatus(OrderStatus.CONFIRMED);
+            }
+        }
+
+        GroupOrder saved = groupOrderRepository.save(order);
+
+        Room room = saved.getRoomId() != null ? roomRepository.findById(saved.getRoomId()).orElse(null) : null;
+        return convertToVO(saved, script, room);
+    }
+
+    @Transactional
+    public GroupOrderVO updatePlayerCount(UpdatePlayerCountRequest request) {
+        GroupOrder order = groupOrderRepository.findByIdForUpdate(request.getOrderId())
+                .orElseThrow(() -> new RuntimeException("拼单不存在"));
+
+        if (order.getStatus() != OrderStatus.PENDING && order.getStatus() != OrderStatus.CONFIRMED) {
+            throw new RuntimeException("当前拼单状态不允许修改人数");
+        }
+
+        int maleDelta = request.getMaleDelta() != null ? request.getMaleDelta() : 0;
+        int femaleDelta = request.getFemaleDelta() != null ? request.getFemaleDelta() : 0;
+
+        int newMale = order.getCurrentMale() + maleDelta;
+        int newFemale = order.getCurrentFemale() + femaleDelta;
+
+        if (newMale < 0 || newFemale < 0) {
+            throw new RuntimeException("人数不能为负数");
+        }
+
+        order.setCurrentMale(newMale);
+        order.setCurrentFemale(newFemale);
+
+        Script script = scriptRepository.findById(order.getScriptId()).orElse(null);
+
+        boolean wasConfirmedBefore = order.getStatus() == OrderStatus.CONFIRMED;
+        boolean isFullNow = isOrderFull(order, script);
+
+        if (wasConfirmedBefore && !isFullNow) {
+            order.setRoomId(null);
+            order.setStatus(OrderStatus.PENDING);
+        } else if (!wasConfirmedBefore && isFullNow) {
             Room room = allocateRoomWithLock(order, script);
             if (room != null) {
                 order.setRoomId(room.getId());

@@ -4,6 +4,7 @@ import com.jubensha.booking.dto.AddPlayerRequest;
 import com.jubensha.booking.dto.CreateGroupOrderRequest;
 import com.jubensha.booking.dto.GroupOrderVO;
 import com.jubensha.booking.dto.RoomStatusVO;
+import com.jubensha.booking.dto.UpdatePlayerCountRequest;
 import com.jubensha.booking.service.GroupOrderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,11 @@ public class GroupOrderController {
     @PostMapping("/add-player")
     public ResponseEntity<GroupOrderVO> addPlayer(@Valid @RequestBody AddPlayerRequest request) {
         return ResponseEntity.ok(groupOrderService.addPlayer(request));
+    }
+
+    @PostMapping("/update-players")
+    public ResponseEntity<GroupOrderVO> updatePlayerCount(@Valid @RequestBody UpdatePlayerCountRequest request) {
+        return ResponseEntity.ok(groupOrderService.updatePlayerCount(request));
     }
 
     @PostMapping("/{id}/cancel")

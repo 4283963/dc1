@@ -36,6 +36,7 @@ export const orderApi = {
   getById: (id) => request.get(`/orders/${id}`),
   create: (data) => request.post('/orders', data),
   addPlayer: (data) => request.post('/orders/add-player', data),
+  updatePlayerCount: (data) => request.post('/orders/update-players', data),
   cancel: (id) => request.post(`/orders/${id}/cancel`),
   start: (id) => request.post(`/orders/${id}/start`),
   finish: (id) => request.post(`/orders/${id}/finish`)

@@ -69,6 +69,44 @@
                   {{ order.totalPlayers }}/{{ order.totalPlayers + order.needTotal }}人
                 </span>
               </div>
+              <div class="player-adjust-row" v-if="order.status === 'PENDING' || order.status === 'CONFIRMED'">
+                <div class="player-adjust-group">
+                  <span class="player-label male">♂ 男生</span>
+                  <el-button
+                    size="small"
+                    circle
+                    :icon="Minus"
+                    @click="adjustPlayer(order, 'male', -1)"
+                    :disabled="order.currentMale <= 0"
+                  />
+                  <span class="player-count">{{ order.currentMale }}</span>
+                  <el-button
+                    size="small"
+                    circle
+                    :icon="Plus"
+                    type="primary"
+                    @click="adjustPlayer(order, 'male', 1)"
+                  />
+                </div>
+                <div class="player-adjust-group">
+                  <span class="player-label female">♀ 女生</span>
+                  <el-button
+                    size="small"
+                    circle
+                    :icon="Minus"
+                    @click="adjustPlayer(order, 'female', -1)"
+                    :disabled="order.currentFemale <= 0"
+                  />
+                  <span class="player-count">{{ order.currentFemale }}</span>
+                  <el-button
+                    size="small"
+                    circle
+                    :icon="Plus"
+                    type="danger"
+                    @click="adjustPlayer(order, 'female', 1)"
+                  />
+                </div>
+              </div>
               <div class="progress-bar">
                 <div
                   class="progress-fill"
@@ -172,7 +210,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Clock, House, User } from '@element-plus/icons-vue'
+import { Plus, Minus, Clock, House, User } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { orderApi, roomApi, scriptApi } from '../api'
 import CreateOrderDialog from './CreateOrderDialog.vue'
@@ -276,6 +314,22 @@ const handleAddPlayerSuccess = () => {
   currentOrder.value = null
   fetchData()
   ElMessage.success('添加成功')
+}
+
+const adjustPlayer = async (order, gender, delta) => {
+  try {
+    await orderApi.updatePlayerCount({
+      orderId: order.id,
+      maleDelta: gender === 'male' ? delta : 0,
+      femaleDelta: gender === 'female' ? delta : 0
+    })
+    fetchData()
+    const action = delta > 0 ? '增加' : '减少'
+    const genderText = gender === 'male' ? '男生' : '女生'
+    ElMessage.success(`${action}${Math.abs(delta)}名${genderText}成功`)
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '操作失败')
+  }
 }
 
 const startOrder = async (id) => {
